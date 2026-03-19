@@ -103,7 +103,7 @@ class QAEngine:
             model=config.LLM_MODEL,
             messages=messages,
             temperature=0.3,
-            max_tokens=2000,
+            max_tokens=4000,
         )
         return response.choices[0].message.content
 
@@ -123,6 +123,6 @@ class QAEngine:
             system=system_msg,
             messages=user_messages,
             temperature=0.3,
-            max_tokens=2000,
+            max_tokens=4000,
         )
         return response.content[0].text
