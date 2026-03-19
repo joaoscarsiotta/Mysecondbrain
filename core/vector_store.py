@@ -33,6 +33,7 @@ class VectorStore:
                 "filename": filename,
                 "file_type": metadata.get("file_type", ""),
                 "chunk_index": c["chunk_index"],
+                "file_hash": metadata.get("file_hash", ""),
             }
             for c in chunks
         ]
@@ -43,6 +44,17 @@ class VectorStore:
             documents=texts,
             metadatas=metadatas,
         )
+
+    def get_document_hash(self, filename: str) -> str | None:
+        """Retorna o hash SHA-256 armazenado do documento, ou None se não indexado."""
+        results = self.collection.get(
+            where={"filename": filename},
+            include=["metadatas"],
+            limit=1,
+        )
+        if results["metadatas"]:
+            return results["metadatas"][0].get("file_hash") or None
+        return None
 
     def query(self, query_text: str, top_k: int = 5) -> list[dict]:
         """Busca semântica nos documentos indexados.

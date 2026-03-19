@@ -1,5 +1,6 @@
 """Meu Segundo Cérebro - Interface Web com Streamlit."""
 
+import hashlib
 import os
 import sys
 from datetime import datetime
@@ -116,10 +117,19 @@ with st.sidebar:
     if uploaded_files and st.button("📥 Indexar Documentos", use_container_width=True):
         for uploaded_file in uploaded_files:
             with st.spinner(f"Processando {uploaded_file.name}..."):
+                file_bytes = uploaded_file.getbuffer()
+                file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+                # Verificar cache: pular se já indexado com o mesmo conteúdo
+                stored_hash = vector_store.get_document_hash(uploaded_file.name)
+                if stored_hash == file_hash:
+                    st.info(f"⏭️ {uploaded_file.name} já indexado (sem alterações)")
+                    continue
+
                 # Salvar arquivo
                 file_path = os.path.join(config.UPLOADS_DIR, uploaded_file.name)
                 with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                    f.write(file_bytes)
 
                 # Extrair texto
                 result = extract_text(file_path)
@@ -133,8 +143,10 @@ with st.sidebar:
                     chunk_size=config.CHUNK_SIZE,
                     chunk_overlap=config.CHUNK_OVERLAP,
                 )
+                result["metadata"]["file_hash"] = file_hash
                 vector_store.add_documents(chunks, result["metadata"])
-                st.success(f"✅ {uploaded_file.name} — {len(chunks)} chunks indexados")
+                action = "atualizado" if stored_hash else "indexado"
+                st.success(f"✅ {uploaded_file.name} — {len(chunks)} chunks {action}")
 
     # Lista de documentos indexados
     st.markdown("---")
