@@ -39,7 +39,7 @@ def init_services(openai_key: str):
     chroma_client = chromadb.PersistentClient(path=config.CHROMA_DB_PATH)
 
     vector_store = VectorStore(
-        persist_dir=config.CHROMA_DB_PATH,
+        chroma_client=chroma_client,
         collection_name=config.DOCUMENTS_COLLECTION,
         embedding_service=embedding_service,
     )

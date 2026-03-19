@@ -16,7 +16,7 @@ CHUNK_SIZE = 800  # tokens
 CHUNK_OVERLAP = 100  # tokens
 
 # Retrieval
-TOP_K_DOCUMENTS = 5
+TOP_K_DOCUMENTS = 10
 TOP_K_CONVERSATIONS = 3
 
 # ChromaDB

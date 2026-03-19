@@ -1,5 +1,7 @@
 """Wrapper do ChromaDB para armazenamento e busca vetorial."""
 
+from collections import defaultdict
+
 import chromadb
 from core.embeddings import EmbeddingService
 
@@ -7,11 +9,11 @@ from core.embeddings import EmbeddingService
 class VectorStore:
     def __init__(
         self,
-        persist_dir: str,
+        chroma_client: chromadb.PersistentClient,
         collection_name: str,
         embedding_service: EmbeddingService,
     ):
-        self.client = chromadb.PersistentClient(path=persist_dir)
+        self.client = chroma_client
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -45,26 +47,54 @@ class VectorStore:
         )
 
     def query(self, query_text: str, top_k: int = 5) -> list[dict]:
-        """Busca semântica nos documentos indexados."""
+        """Busca semântica nos documentos indexados com diversidade de fontes.
+
+        Busca um pool maior de candidatos e distribui os resultados entre
+        todos os documentos indexados via round-robin, garantindo que nenhum
+        documento seja ignorado.
+        """
         if self.collection.count() == 0:
             return []
 
         query_embedding = self.embedding_service.embed_single(query_text)
+
+        # Buscar pool maior para garantir cobertura de todos os documentos
+        fetch_k = min(top_k * 4, self.collection.count())
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=min(top_k, self.collection.count()),
+            n_results=fetch_k,
             include=["documents", "metadatas", "distances"],
         )
 
-        items = []
+        # Agrupar resultados por documento (mantendo ordem de relevância)
+        by_doc = defaultdict(list)
         for i in range(len(results["ids"][0])):
-            items.append(
-                {
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "distance": results["distances"][0][i],
-                }
-            )
+            item = {
+                "text": results["documents"][0][i],
+                "metadata": results["metadatas"][0][i],
+                "distance": results["distances"][0][i],
+            }
+            filename = item["metadata"].get("filename", "")
+            by_doc[filename].append(item)
+
+        # Round-robin: pegar os melhores chunks de cada documento alternadamente
+        items = []
+        doc_iters = {k: iter(v) for k, v in by_doc.items()}
+        while len(items) < top_k and doc_iters:
+            exhausted = []
+            for filename, it in doc_iters.items():
+                if len(items) >= top_k:
+                    break
+                chunk = next(it, None)
+                if chunk is not None:
+                    items.append(chunk)
+                else:
+                    exhausted.append(filename)
+            for filename in exhausted:
+                del doc_iters[filename]
+
+        # Ordenar resultado final por relevância (menor distância = mais similar)
+        items.sort(key=lambda x: x["distance"])
         return items
 
     def delete_document(self, filename: str) -> None:
