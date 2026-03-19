@@ -113,8 +113,14 @@ with st.sidebar:
         accept_multiple_files=True,
         type=["pdf", "docx", "txt", "md", "epub"],
     )
+    tags_input = st.text_input(
+        "Tags (separadas por vírgula)",
+        placeholder="ex: trabalho, python, notas",
+        key="upload_tags",
+    )
 
     if uploaded_files and st.button("📥 Indexar Documentos", use_container_width=True):
+        upload_tags = [t.strip().lower() for t in tags_input.split(",") if t.strip()]
         for uploaded_file in uploaded_files:
             with st.spinner(f"Processando {uploaded_file.name}..."):
                 file_bytes = uploaded_file.getbuffer()
@@ -144,6 +150,7 @@ with st.sidebar:
                     chunk_overlap=config.CHUNK_OVERLAP,
                 )
                 result["metadata"]["file_hash"] = file_hash
+                result["metadata"]["tags"] = upload_tags
                 vector_store.add_documents(chunks, result["metadata"])
                 action = "atualizado" if stored_hash else "indexado"
                 st.success(f"✅ {uploaded_file.name} — {len(chunks)} chunks {action}")
@@ -154,13 +161,42 @@ with st.sidebar:
     docs = vector_store.list_documents()
     if docs:
         for doc in docs:
+            filename = doc["filename"]
+            tags = doc["tags"]
             col1, col2 = st.columns([4, 1])
-            col1.text(doc)
-            if col2.button("🗑️", key=f"del_{doc}"):
-                vector_store.delete_document(doc)
+            col1.text(filename)
+            if tags:
+                col1.caption("  ".join(f"#{t}" for t in tags))
+            if col2.button("🗑️", key=f"del_{filename}"):
+                vector_store.delete_document(filename)
                 st.rerun()
+            with st.expander("✏️ editar tags"):
+                new_tags_str = st.text_input(
+                    "Tags",
+                    value=", ".join(tags),
+                    key=f"tags_input_{filename}",
+                    label_visibility="collapsed",
+                    placeholder="ex: trabalho, python, notas",
+                )
+                if st.button("Salvar tags", key=f"save_tags_{filename}", use_container_width=True):
+                    new_tags = [t.strip().lower() for t in new_tags_str.split(",") if t.strip()]
+                    vector_store.update_document_tags(filename, new_tags)
+                    st.rerun()
     else:
         st.caption("Nenhum documento indexado ainda.")
+
+    # Filtro por tags
+    all_tags = sorted({t for doc in docs for t in doc["tags"]}) if docs else []
+    selected_tags: list[str] = []
+    if all_tags:
+        st.markdown("---")
+        st.subheader("🏷️ Filtrar por Tags")
+        selected_tags = st.multiselect(
+            "Buscar apenas nos documentos com:",
+            options=all_tags,
+            default=[],
+            label_visibility="collapsed",
+        )
 
     # Conversas anteriores
     st.markdown("---")
@@ -212,7 +248,11 @@ if question := st.chat_input("Faça uma pergunta ao seu Segundo Cérebro..."):
     # Gerar resposta
     with st.chat_message("assistant"):
         with st.spinner("Pensando..."):
-            result = qa_engine.answer(question, st.session_state.conversation_id)
+            result = qa_engine.answer(
+                question,
+                st.session_state.conversation_id,
+                tags_filter=selected_tags or None,
+            )
 
         st.markdown(result["answer"])
 

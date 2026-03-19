@@ -17,10 +17,17 @@ class QAEngine:
         self.vector_store = vector_store
         self.conversation_store = conversation_store
 
-    def answer(self, question: str, conversation_id: str) -> dict:
+    def answer(
+        self,
+        question: str,
+        conversation_id: str,
+        tags_filter: list[str] | None = None,
+    ) -> dict:
         """Responde uma pergunta usando RAG sobre documentos e conversas."""
         # 1. Buscar contexto nos documentos
-        doc_results = self.vector_store.query(question, top_k=config.TOP_K_DOCUMENTS)
+        doc_results = self.vector_store.query(
+            question, top_k=config.TOP_K_DOCUMENTS, tags_filter=tags_filter
+        )
 
         # 2. Buscar conversas passadas relevantes
         conv_results = self.conversation_store.query_relevant(
