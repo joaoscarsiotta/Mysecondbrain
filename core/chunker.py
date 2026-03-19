@@ -20,7 +20,7 @@ def chunk_text(
         return [{"text": text.strip(), "chunk_index": 0}]
 
     # Dividir por separadores hierárquicos para manter coerência
-    segments = _split_by_separators(text)
+    segments = _split_by_separators(text, chunk_size, encoder)
 
     chunks = []
     current_tokens = []
@@ -51,21 +51,43 @@ def chunk_text(
     return chunks
 
 
-def _split_by_separators(text: str) -> list[str]:
-    """Divide texto mantendo os separadores junto aos segmentos."""
+def _split_by_separators(
+    text: str,
+    chunk_size: int,
+    encoder: "tiktoken.Encoding",
+    _sep_index: int = 0,
+) -> list[str]:
+    """Divide texto recursivamente usando separadores hierárquicos.
+
+    Se um segmento ainda excede chunk_size após a divisão, tenta o
+    próximo separador na hierarquia.
+    """
     separators = ["\n\n", "\n", ". ", " "]
 
-    for sep in separators:
-        if sep in text:
-            parts = text.split(sep)
-            # Reunir separador com cada parte (exceto a última)
-            result = []
-            for i, part in enumerate(parts):
-                if i < len(parts) - 1:
-                    result.append(part + sep)
-                else:
-                    result.append(part)
-            return result
+    if _sep_index >= len(separators):
+        return [text]
 
-    # Sem separador encontrado, retornar texto inteiro
-    return [text]
+    sep = separators[_sep_index]
+    if sep not in text:
+        return _split_by_separators(text, chunk_size, encoder, _sep_index + 1)
+
+    parts = text.split(sep)
+    # Reunir separador com cada parte (exceto a última)
+    raw_segments = []
+    for i, part in enumerate(parts):
+        if i < len(parts) - 1:
+            raw_segments.append(part + sep)
+        else:
+            raw_segments.append(part)
+
+    # Recursivamente dividir segmentos que ainda excedem chunk_size
+    result = []
+    for segment in raw_segments:
+        if len(encoder.encode(segment)) > chunk_size:
+            result.extend(
+                _split_by_separators(segment, chunk_size, encoder, _sep_index + 1)
+            )
+        else:
+            result.append(segment)
+
+    return result
