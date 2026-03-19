@@ -79,11 +79,7 @@ class VectorStore:
         top_k: int = 5,
         tags_filter: list[str] | None = None,
     ) -> list[dict]:
-        """Busca semântica nos documentos indexados.
-
-        Cada documento é buscado individualmente para garantir que todos
-        sejam considerados. Os melhores chunks de cada documento são
-        reunidos e ordenados globalmente por relevância.
+        """Busca semântica nos documentos indexados por similaridade cosseno.
 
         Se tags_filter for fornecido, considera apenas documentos que
         possuam pelo menos uma das tags especificadas.
@@ -92,41 +88,37 @@ class VectorStore:
             return []
 
         query_embedding = self.embedding_service.embed_single(query_text)
-        all_docs = self.list_documents()
-        if not all_docs:
-            return []
 
+        # Build where clause for tag filtering
+        where = None
         if tags_filter:
-            all_docs = [
-                d for d in all_docs
+            filenames = [
+                d["filename"] for d in self.list_documents()
                 if any(t in d["tags"] for t in tags_filter)
             ]
-            if not all_docs:
+            if not filenames:
                 return []
+            if len(filenames) == 1:
+                where = {"filename": filenames[0]}
+            else:
+                where = {"filename": {"$in": filenames}}
 
-        # Chunks a buscar por documento: distribui top_k igualmente, mínimo 1
-        chunks_per_doc = max(1, (top_k + len(all_docs) - 1) // len(all_docs))
+        n_results = min(top_k, self.collection.count())
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=where,
+            include=["documents", "metadatas", "distances"],
+        )
 
-        candidates = []
-        for doc in all_docs:
-            try:
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=chunks_per_doc,
-                    where={"filename": doc["filename"]},
-                    include=["documents", "metadatas", "distances"],
-                )
-                for i in range(len(results["ids"][0])):
-                    candidates.append({
-                        "text": results["documents"][0][i],
-                        "metadata": results["metadatas"][0][i],
-                        "distance": results["distances"][0][i],
-                    })
-            except Exception:
-                continue
-
-        candidates.sort(key=lambda x: x["distance"])
-        return candidates[:top_k]
+        return [
+            {
+                "text": results["documents"][0][i],
+                "metadata": results["metadatas"][0][i],
+                "distance": results["distances"][0][i],
+            }
+            for i in range(len(results["ids"][0]))
+        ]
 
     def delete_document(self, filename: str) -> None:
         """Remove todos os chunks de um documento."""
